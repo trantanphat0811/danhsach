@@ -1,150 +1,116 @@
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, messagebox
 import psycopg2
-from psycopg2 import sql
 
-# Function to connect to the PostgreSQL database
-def connect_db():
+db_connection = None
+
+def login():
+    global db_connection
     try:
-        conn = psycopg2.connect(
-            database="qlsv",  # Đổi thành chữ thường không có dấu ngoặc kép
-            user="postgres",
-            password="phattan112",
+        db_connection = psycopg2.connect(
+            database="postgres",
+            user=entry_user.get(),
+            password=entry_password.get(),
             host="localhost",
             port="5432"
-)
-
-        return conn
+        )
+        messagebox.showinfo("Thành công", "Đăng nhập thành công!")
     except Exception as e:
-        print("Error connecting to the database:", e)
-        return None
+        messagebox.showerror("Lỗi", f"Lỗi đăng nhập: {e}")
 
-# Function to load data into Treeview
-def load_data():
-    for row in tree.get_children():
-        tree.delete(row)
-    conn = connect_db()
-    if conn:
-        try:
+def register_user():
+    try:
+        with psycopg2.connect(
+            database="postgres", user="postgres", password="admin", host="localhost", port="5432"
+        ) as conn:
+            conn.autocommit = True
             cursor = conn.cursor()
-            cursor.execute("SELECT * FROM students")
-            rows = cursor.fetchall()
-            for row in rows:
-                tree.insert('', tk.END, values=row)
-        except Exception as e:
-            print("Error loading data:", e)
-        finally:
-            conn.close()
+            username = entry_new_user.get()
+            password = entry_new_password.get()
+            cursor.execute(f"CREATE USER {username} WITH PASSWORD %s", (password,))
+            cursor.execute(f"GRANT CONNECT ON DATABASE postgres TO {username}")
+            messagebox.showinfo("Thành công", f"User '{username}' đã được tạo!")
+    except Exception as e:
+        messagebox.showerror("Lỗi", f"Lỗi tạo user: {e}")
 
-# Adding a new student
-def add_student():
-    conn = connect_db()
-    if conn:
-        try:
+def search_users():
+    keyword = entry_search.get().strip()  
+    try:
+        with psycopg2.connect(
+            database="postgres", user="postgres", password="admin", host="localhost", port="5432"
+        ) as conn:
             cursor = conn.cursor()
-            cursor.execute("INSERT INTO students (name, age, gender, major) VALUES (%s, %s, %s, %s)",
-                           (entry_name.get(), entry_age.get(), entry_gender.get(), entry_major.get()))
-            conn.commit()
-        except Exception as e:
-            print("Error adding student:", e)
-        finally:
-            conn.close()
-            load_data()
+            query = "SELECT usename FROM pg_user WHERE usename ILIKE %s"
+            cursor.execute(query, (f"%{keyword}%",))
+            users = cursor.fetchall()
 
-# Update selected student
-def update_student():
-    selected = tree.selection()
-    if selected:
-        conn = connect_db()
-        if conn:
-            try:
-                cursor = conn.cursor()
-                student_id = tree.item(selected[0])['values'][0]
-                cursor.execute("""
-                    UPDATE students
-                    SET name=%s, age=%s, gender=%s, major=%s
-                    WHERE id=%s
-                """, (entry_name.get(), entry_age.get(), entry_gender.get(), entry_major.get(), student_id))
-                conn.commit()
-            except Exception as e:
-                print("Error updating student:", e)
-            finally:
-                conn.close()
-                load_data()
+            for row in tree.get_children():
+                tree.delete(row)
 
-# Delete selected student
-def delete_student():
-    selected = tree.selection()
-    if selected:
-        conn = connect_db()
-        if conn:
-            try:
-                cursor = conn.cursor()
-                student_id = tree.item(selected[0])['values'][0]
-                cursor.execute("DELETE FROM students WHERE id=%s", (student_id,))
-                conn.commit()
-            except Exception as e:
-                print("Error deleting student:", e)
-            finally:
-                conn.close()
-                load_data()
+            if users:
+                for user in users:
+                    tree.insert('', tk.END, values=user)
+            else:
+                messagebox.showinfo("Kết quả", "Không tìm thấy user nào.")
+    except Exception as e:
+        messagebox.showerror("Lỗi", f"Lỗi tìm kiếm user: {e}")
 
-# Initialize main window
-root = tk.Tk()
-root.title("Student Management System")
+def main_window():
+    root = tk.Tk()
+    root.title("Quản lý User PostgreSQL")
 
-# Top Frame (for input fields)
-top_frame = tk.Frame(root)
-top_frame.pack(pady=10)
+    notebook = ttk.Notebook(root)
+    notebook.pack(padx=10, pady=10, expand=True)
 
-tk.Label(top_frame, text="Tên:").grid(row=0, column=0)
-entry_name = tk.Entry(top_frame)
-entry_name.grid(row=0, column=1)
+    login_tab = ttk.Frame(notebook)
+    notebook.add(login_tab, text="Đăng nhập")
 
-tk.Label(top_frame, text="Tuổi:").grid(row=0, column=2)
-entry_age = tk.Entry(top_frame)
-entry_age.grid(row=0, column=3)
+    tk.Label(login_tab, text="User:").grid(row=0, column=0, padx=5, pady=5)
+    global entry_user
+    entry_user = tk.Entry(login_tab)
+    entry_user.grid(row=0, column=1, padx=5, pady=5)
 
-tk.Label(top_frame, text="Giới tính:").grid(row=1, column=0)
-entry_gender = tk.Entry(top_frame)
-entry_gender.grid(row=1, column=1)
+    tk.Label(login_tab, text="Password:").grid(row=1, column=0, padx=5, pady=5)
+    global entry_password
+    entry_password = tk.Entry(login_tab, show="*")
+    entry_password.grid(row=1, column=1, padx=5, pady=5)
 
-tk.Label(top_frame, text="Ngành học:").grid(row=1, column=2)
-entry_major = tk.Entry(top_frame)
-entry_major.grid(row=1, column=3)
+    btn_login = tk.Button(login_tab, text="Login", command=login)
+    btn_login.grid(row=2, column=0, columnspan=2, pady=10)
 
-# Middle Frame (for buttons)
-middle_frame = tk.Frame(root)
-middle_frame.pack(pady=10)
+    register_tab = ttk.Frame(notebook)
+    notebook.add(register_tab, text="Đăng ký User")
 
-btn_add = tk.Button(middle_frame, text="Thêm sinh viên", command=add_student)
-btn_add.grid(row=0, column=0, padx=10)
+    tk.Label(register_tab, text="User mới:").grid(row=0, column=0, padx=5, pady=5)
+    global entry_new_user
+    entry_new_user = tk.Entry(register_tab)
+    entry_new_user.grid(row=0, column=1, padx=5, pady=5)
 
-btn_update = tk.Button(middle_frame, text="Cập nhật thông tin", command=update_student)
-btn_update.grid(row=0, column=1, padx=10)
+    tk.Label(register_tab, text="Password:").grid(row=1, column=0, padx=5, pady=5)
+    global entry_new_password
+    entry_new_password = tk.Entry(register_tab, show="*")
+    entry_new_password.grid(row=1, column=1, padx=5, pady=5)
 
-btn_delete = tk.Button(middle_frame, text="Xóa sinh viên", command=delete_student)
-btn_delete.grid(row=0, column=2, padx=10)
+    btn_register_user = tk.Button(register_tab, text="Tạo User", command=register_user)
+    btn_register_user.grid(row=2, column=0, columnspan=2, pady=10)
 
-btn_reload = tk.Button(middle_frame, text="Tải lại danh sách", command=load_data)
-btn_reload.grid(row=0, column=3, padx=10)
+    search_tab = ttk.Frame(notebook)
+    notebook.add(search_tab, text="Tìm kiếm User")
 
-# Bottom Frame (for Treeview displaying student list)
-bottom_frame = tk.Frame(root)
-bottom_frame.pack(pady=10)
+    tk.Label(search_tab, text="Từ khóa tìm kiếm:").pack(padx=5, pady=5)
+    global entry_search
+    entry_search = tk.Entry(search_tab)
+    entry_search.pack(padx=5, pady=5)
 
-columns = ("id", "name", "age", "gender", "major")
-tree = ttk.Treeview(bottom_frame, columns=columns, show="headings")
-tree.heading("id", text="ID")
-tree.heading("name", text="Tên")
-tree.heading("age", text="Tuổi")
-tree.heading("gender", text="Giới tính")
-tree.heading("major", text="Ngành học")
-tree.pack()
+    btn_search_users = tk.Button(search_tab, text="Tìm User", command=search_users)
+    btn_search_users.pack(pady=10)
 
-# Load data on startup
-load_data()
+    global tree
+    tree = ttk.Treeview(search_tab, columns=("User"), show="headings")
+    tree.heading("User", text="Tên User")
+    tree.pack(padx=10, pady=10, fill=tk.BOTH, expand=True)
 
-# Start the main event loop
-root.mainloop()
+    root.mainloop()
 
+if __name__ == "__main__":
+    main_window()
